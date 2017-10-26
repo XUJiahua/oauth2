@@ -170,11 +170,16 @@ func (m *Manager) GenerateAuthToken(rt oauth2.ResponseType, tgr *oauth2.TokenGen
 	}
 	_, ierr := m.injector.Invoke(func(ti oauth2.TokenInfo, gen oauth2.AuthorizeGenerate, tgen oauth2.AccessGenerate, stor oauth2.TokenStore) {
 		ti = ti.New()
+		ti.SetClientID(tgr.ClientID)
+		ti.SetUserID(tgr.UserID)
+		ti.SetRedirectURI(tgr.RedirectURI)
+		ti.SetScope(tgr.Scope)
 
 		td := &oauth2.GenerateBasic{
-			Client:   cli,
-			UserID:   tgr.UserID,
-			CreateAt: time.Now(),
+			Client:    cli,
+			UserID:    tgr.UserID,
+			CreateAt:  time.Now(),
+			TokenInfo: ti,
 		}
 		switch rt {
 		case oauth2.Code:
@@ -215,10 +220,7 @@ func (m *Manager) GenerateAuthToken(rt oauth2.ResponseType, tgr *oauth2.TokenGen
 				ti.SetRefreshExpiresIn(icfg.RefreshTokenExp)
 			}
 		}
-		ti.SetClientID(tgr.ClientID)
-		ti.SetUserID(tgr.UserID)
-		ti.SetRedirectURI(tgr.RedirectURI)
-		ti.SetScope(tgr.Scope)
+
 		err = stor.Create(ti)
 		if err != nil {
 			return
@@ -238,7 +240,7 @@ func (m *Manager) getAuthorizationCode(code string) (info oauth2.TokenInfo, err 
 		if terr != nil {
 			err = terr
 			return
-		} else if ti == nil || ti.GetCodeCreateAt().Add(ti.GetCodeExpiresIn()).Before(time.Now()) {
+		} else if ti == nil || ti.GetCode() != code || ti.GetCodeCreateAt().Add(ti.GetCodeExpiresIn()).Before(time.Now()) {
 			err = errors.ErrInvalidAuthorizeCode
 			return
 		}
@@ -292,9 +294,10 @@ func (m *Manager) GenerateAccessToken(gt oauth2.GrantType, tgr *oauth2.TokenGene
 	_, ierr := m.injector.Invoke(func(ti oauth2.TokenInfo, gen oauth2.AccessGenerate, stor oauth2.TokenStore) {
 		ti = ti.New()
 		td := &oauth2.GenerateBasic{
-			Client:   cli,
-			UserID:   tgr.UserID,
-			CreateAt: time.Now(),
+			Client:    cli,
+			UserID:    tgr.UserID,
+			CreateAt:  time.Now(),
+			TokenInfo: ti,
 		}
 		gcfg := m.grantConfig(gt)
 
@@ -354,9 +357,10 @@ func (m *Manager) RefreshAccessToken(tgr *oauth2.TokenGenerateRequest) (accessTo
 	oldAccess, oldRefresh := ti.GetAccess(), ti.GetRefresh()
 	_, ierr := m.injector.Invoke(func(stor oauth2.TokenStore, gen oauth2.AccessGenerate) {
 		td := &oauth2.GenerateBasic{
-			Client:   cli,
-			UserID:   ti.GetUserID(),
-			CreateAt: time.Now(),
+			Client:    cli,
+			UserID:    ti.GetUserID(),
+			CreateAt:  time.Now(),
+			TokenInfo: ti,
 		}
 
 		rcfg := DefaultRefreshTokenCfg
@@ -470,7 +474,7 @@ func (m *Manager) LoadAccessToken(access string) (info oauth2.TokenInfo, err err
 		if terr != nil {
 			err = terr
 			return
-		} else if ti == nil {
+		} else if ti == nil || ti.GetAccess() != access {
 			err = errors.ErrInvalidAccessToken
 			return
 		} else if ti.GetRefresh() != "" && ti.GetRefreshCreateAt().Add(ti.GetRefreshExpiresIn()).Before(ct) {
@@ -498,7 +502,7 @@ func (m *Manager) LoadRefreshToken(refresh string) (info oauth2.TokenInfo, err e
 		if terr != nil {
 			err = terr
 			return
-		} else if ti == nil {
+		} else if ti == nil || ti.GetRefresh() != refresh {
 			err = errors.ErrInvalidRefreshToken
 			return
 		} else if ti.GetRefreshCreateAt().Add(ti.GetRefreshExpiresIn()).Before(time.Now()) {
